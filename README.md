@@ -20,6 +20,13 @@ Easily withdraw **all your pending LinkedIn invitations** at once — no need to
 5. Paste into the Console and press **Enter**.
 6. Lean back & relax 😎 — all old invites will be withdrawn.
 
+
+👉 Just type this and press **Enter**:
+```js
+allow pasting
+
+
+
 ## 🛑 Stop Script
 If you want to stop the process at any time, type:
 ```js
