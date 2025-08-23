@@ -17,13 +17,14 @@ Easily withdraw **all your pending LinkedIn invitations** at once — no need to
    - Mac: `Cmd + Option + I`
 3. Go to the **Console** tab.
 4. Copy everything from [`linkedin-bulk-invitation-withdraw-script.js`](./linkedin-bulk-invitation-withdraw-script.js).
-5. Paste into the Console and press **Enter**.
-6. Lean back & relax 😎 — all old invites will be withdrawn.
-
-
-👉 Just type this and press **Enter**:
+5. 👉 Just type this and press **Enter**:
 ```js
 allow pasting
+6. Paste into the Console and press **Enter**.
+7. Lean back & relax 😎 — all old invites will be withdrawn.
+
+
+
 
 
 
