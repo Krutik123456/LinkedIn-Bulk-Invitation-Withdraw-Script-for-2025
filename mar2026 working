@@ -1,0 +1,202 @@
+(async function withdrawOldLinkedInRequests() {
+  console.log("🚀 Starting LinkedIn auto-withdraw (only >1 week old, skipping exactly 1 week)...");
+
+  if (!location.href.includes("invitation-manager/sent")) {
+    console.error("❌ Go to: https://www.linkedin.com/mynetwork/invitation-manager/sent/");
+    return;
+  }
+
+  const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+  let withdrawnCount = 0;
+  let skippedCount = 0;
+  let stopFlag = false;
+  const BATCH_SIZE = 30;
+  const BATCH_DELAY = 20000;
+
+  window.stopWithdraw = function () {
+    stopFlag = true;
+    console.log("🛑 Stopped.");
+  };
+
+  function shouldWithdraw(card) {
+    const allText = [
+      card.innerText,
+      ...Array.from(card.querySelectorAll("*")).map(
+        (el) => el.getAttribute("aria-label") || ""
+      ),
+    ].join(" ").toLowerCase();
+
+    if (!allText.includes("sent")) return true;
+    const match = allText.match(/sent\s+(\d+)\s+(second|minute|hour|day|week|month|year)/);
+    if (!match) return true;
+
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+    console.log(`📅 Sent ${value} ${unit}(s) ago`);
+
+    // ❌ SKIP — too recent
+    if (unit.startsWith("second")) return false;
+    if (unit.startsWith("minute")) return false;
+    if (unit.startsWith("hour"))   return false;
+    if (unit.startsWith("day"))    return false;
+
+    // ❌ SKIP — exactly 1 week
+    if (unit.startsWith("week") && value === 1) return false;
+
+    // ✅ WITHDRAW — 2 weeks, 3 weeks, 1 month, 1 year...
+    if (unit.startsWith("week") && value >= 2) return true;
+    if (unit.startsWith("month"))              return true;
+    if (unit.startsWith("year"))               return true;
+
+    return false; // default: skip if unsure
+  }
+
+  function getWithdrawElements() {
+    return Array.from(document.querySelectorAll("a, button")).filter((el) => {
+      if (!/^withdraw$/i.test(el.innerText.trim())) return false;
+      if (el.closest("[role='dialog'], .artdeco-modal")) return false;
+      const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+      if (aria.startsWith("withdrawn invitation")) return false;
+      return true;
+    });
+  }
+
+  function waitForConfirmButton(timeout = 3000) {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeout;
+      const check = () => {
+        const byAria = document.querySelector('button[aria-label^="Withdrawn invitation"]');
+        if (byAria) return resolve(byAria);
+
+        const modal = document.querySelector("[role='dialog'], .artdeco-modal, [data-test-modal]");
+        if (modal) {
+          const el = Array.from(modal.querySelectorAll("a, button")).find(
+            (e) => /^withdraw$/i.test(e.innerText.trim())
+          );
+          if (el) return resolve(el);
+        }
+
+        if (Date.now() < deadline) setTimeout(check, 80);
+        else resolve(null);
+      };
+      setTimeout(check, 150);
+    });
+  }
+
+  async function waitForWithdrawElements(timeout = 10000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const els = getWithdrawElements();
+      if (els.length > 0) return els;
+      await delay(200);
+    }
+    return [];
+  }
+
+  async function clickLoadMoreIfExists() {
+    const btn = Array.from(document.querySelectorAll("a, button")).find((el) =>
+      /show more|load more/i.test(el.innerText.trim())
+    );
+    if (btn) {
+      console.log("🔄 Show more...");
+      btn.click();
+      await delay(800);
+      return true;
+    }
+    return false;
+  }
+
+  async function withdrawVisibleInvitations() {
+    const links = getWithdrawElements();
+    console.log(`🔎 Found ${links.length} withdraw element(s)`);
+    let actedOnAny = false;
+
+    for (let el of links) {
+      if (stopFlag) break;
+      if (!document.body.contains(el)) continue;
+
+      try {
+        const card =
+          el.closest("li, article, [data-view-name]") ||
+          el.parentElement?.parentElement;
+
+        if (!card) continue;
+
+        if (!shouldWithdraw(card)) {
+          skippedCount++;
+          console.log(`⏩ SKIPPED (${skippedCount})`);
+          continue;
+        }
+
+        el.click();
+        actedOnAny = true;
+
+        const confirmEl = await waitForConfirmButton(3000);
+        if (confirmEl) {
+          confirmEl.click();
+          withdrawnCount++;
+          console.log(`✅ #${withdrawnCount}`);
+          await delay(300);
+
+          if (withdrawnCount % BATCH_SIZE === 0) {
+            console.log(`⏸️ ${BATCH_SIZE} done — 20s cooldown...`);
+            for (let i = BATCH_DELAY / 1000; i > 0; i--) {
+              if (stopFlag) break;
+              console.log(`   ⏳ ${i}s...`);
+              await delay(1000);
+            }
+            console.log("▶️ Resuming...");
+          }
+        } else {
+          console.warn("⚠️ No confirm — Escape");
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          await delay(300);
+        }
+
+        await delay(150 + Math.random() * 100);
+
+      } catch (err) {
+        console.error("⚠️", err);
+      }
+    }
+    return actedOnAny;
+  }
+
+  console.log("⏳ Waiting for page...");
+  const initial = await waitForWithdrawElements(10000);
+  if (initial.length === 0) {
+    console.error("❌ No Withdraw elements found. Make sure you are on the Sent tab.");
+    console.log("DEBUG:",
+      Array.from(document.querySelectorAll("a, button"))
+        .filter((e) => e.innerText.trim().length > 0 && e.innerText.trim().length < 30)
+        .map((e) => `<${e.tagName}> aria="${e.getAttribute("aria-label")}" text="${e.innerText.trim()}"`)
+        .slice(0, 30)
+    );
+    return;
+  }
+
+  let emptyRounds = 0;
+  while (!stopFlag) {
+    const acted = await withdrawVisibleInvitations();
+    if (stopFlag) break;
+
+    const didMore = await clickLoadMoreIfExists();
+    if (!didMore) {
+      window.scrollTo(0, document.body.scrollHeight);
+      await delay(800);
+      if (!acted) {
+        emptyRounds++;
+        if (emptyRounds >= 3) {
+          console.log("✅ All done.");
+          break;
+        }
+      } else {
+        emptyRounds = 0;
+      }
+    } else {
+      emptyRounds = 0;
+    }
+  }
+
+  console.log(`🏁 Done. Withdrawn: ${withdrawnCount} | Skipped: ${skippedCount}`);
+})();
